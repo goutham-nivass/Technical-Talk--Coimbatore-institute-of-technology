@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sampling levers — temperature, top-k, top-p</title>
+<style>
+  :root{
+    --ground:#F6F6F4;
+    --ink:#16202E;
+    --ink-soft:#5A6472;
+    --keep:#0B5C4E;
+    --keep-fill:#0B5C4E;
+    --drop:#C6C3BC;
+    --fired:#C2410C;
+    --rule:#DDDAD3;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ground);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:17px;
+    line-height:1.45;
+    padding:28px 32px 20px;
+    min-height:100vh;
+  }
+
+  /* ---- prompt header ---- */
+  header{
+    display:flex;align-items:baseline;justify-content:space-between;
+    gap:24px;flex-wrap:wrap;
+    border-bottom:2px solid var(--ink);
+    padding-bottom:14px;margin-bottom:22px;
+  }
+  .prompt{font-family:var(--mono);font-size:30px;font-weight:500;letter-spacing:-.01em}
+  .prompt .blank{
+    color:var(--fired);
+    border-bottom:3px solid var(--fired);
+    padding:0 .35em;
+  }
+  .presets{display:flex;gap:8px;flex-wrap:wrap}
+  .presets button{
+    font-family:var(--sans);font-size:15px;
+    background:none;border:1.5px solid var(--rule);color:var(--ink-soft);
+    padding:7px 13px;border-radius:2px;cursor:pointer;
+  }
+  .presets button:hover{border-color:var(--ink);color:var(--ink)}
+  .presets button[aria-pressed="true"]{
+    background:var(--ink);border-color:var(--ink);color:var(--ground);
+  }
+
+  /* ---- two column body ---- */
+  main{display:grid;grid-template-columns:270px 1fr;gap:42px;align-items:start}
+
+  /* ---- controls ---- */
+  .lever{margin-bottom:30px}
+  .lever-top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px}
+  .lever-name{font-size:18px;font-weight:600}
+  .lever-val{font-family:var(--mono);font-size:32px;font-weight:600;line-height:1}
+  .lever-note{font-size:14px;color:var(--ink-soft);margin-bottom:10px}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;
+    width:100%;height:30px;background:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:4px;background:var(--rule)}
+  input[type=range]::-moz-range-track{height:4px;background:var(--rule)}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:22px;height:22px;border-radius:50%;
+    background:var(--ink);border:none;margin-top:-9px;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:22px;height:22px;border-radius:50%;background:var(--ink);border:none;
+  }
+  input[type=range]:focus-visible{outline:3px solid var(--fired);outline-offset:3px}
+
+  .order{
+    border-top:1px solid var(--rule);padding-top:16px;
+    font-size:14px;color:var(--ink-soft);
+  }
+  .order b{color:var(--ink);font-weight:600;display:block;margin-bottom:6px;font-size:15px}
+  .order ol{margin:0;padding-left:18px}
+  .order li{margin-bottom:3px}
+
+  /* ---- distribution ---- */
+  .rows{position:relative}
+  .row{
+    display:grid;grid-template-columns:150px 1fr 88px;
+    align-items:center;gap:14px;height:44px;
+  }
+  .tok{
+    font-family:var(--mono);font-size:21px;text-align:right;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .bar-track{height:26px;position:relative}
+  .bar{
+    height:26px;width:0;
+    background:var(--keep-fill);
+    transition:width .18s ease, background-color .18s ease;
+  }
+  .pct{font-family:var(--mono);font-size:19px;font-weight:600}
+
+  .row.out .tok{color:var(--drop);text-decoration:line-through}
+  .row.out .bar{background:none;box-shadow:inset 0 0 0 2px var(--drop)}
+  .row.out .pct{color:var(--drop)}
+  .row.fired .bar{background:var(--fired)}
+  .row.fired .tok,.row.fired .pct{color:var(--fired)}
+
+  .cut{
+    position:absolute;left:0;right:0;height:0;
+    border-top:2.5px dashed var(--fired);
+    display:flex;justify-content:flex-end;
+    transition:top .18s ease;
+    pointer-events:none;
+  }
+  .cut span{
+    font-size:13px;font-weight:600;color:var(--fired);
+    background:var(--ground);padding:0 8px;transform:translateY(-50%);
+  }
+
+  /* ---- footer readouts ---- */
+  footer{
+    margin-top:26px;border-top:2px solid var(--ink);padding-top:18px;
+    display:grid;grid-template-columns:1fr auto;gap:32px;align-items:start;
+  }
+  .stats{display:flex;gap:38px;flex-wrap:wrap}
+  .stat-val{font-family:var(--mono);font-size:29px;font-weight:600;line-height:1.1}
+  .stat-lab{font-size:14px;color:var(--ink-soft)}
+  .actions{display:flex;gap:10px;align-items:flex-start}
+  .actions button{
+    font-family:var(--sans);font-size:17px;font-weight:600;
+    padding:13px 20px;border-radius:2px;cursor:pointer;border:2px solid var(--ink);
+  }
+  #draw{background:var(--ink);color:var(--ground)}
+  #draw20{background:none;color:var(--ink)}
+  .actions button:focus-visible{outline:3px solid var(--fired);outline-offset:3px}
+
+  .tape{
+    margin-top:16px;grid-column:1/-1;
+    border-top:1px solid var(--rule);padding-top:12px;
+    font-family:var(--mono);font-size:17px;min-height:30px;
+    color:var(--ink-soft);
+  }
+  .tape b{color:var(--ink);font-weight:600;font-family:var(--sans);font-size:14px;
+    margin-right:12px;letter-spacing:0}
+  .tape .t{color:var(--ink)}
+  .tape .t+.t::before{content:"  ·  ";color:var(--drop)}
+
+  @media (prefers-reduced-motion: reduce){
+    .bar,.cut{transition:none}
+  }
+  @media (max-width:900px){
+    main{grid-template-columns:1fr;gap:26px}
+    .prompt{font-size:22px}
+    .row{grid-template-columns:110px 1fr 70px;height:38px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="prompt">Chennai is a city famous for its<span class="blank">?</span></div>
+  <div class="presets" id="presets">
+    <button data-t="0.01" data-k="10" data-p="1">Greedy — code and JSON</button>
+    <button data-t="0.7" data-k="10" data-p="0.9">Balanced</button>
+    <button data-t="1.4" data-k="10" data-p="1">Creative</button>
+    <button data-t="2" data-k="10" data-p="1">Too hot</button>
+  </div>
+</header>
+
+<main>
+  <div>
+    <div class="lever">
+      <div class="lever-top"><span class="lever-name">Temperature</span><span class="lever-val" id="tVal">1.00</span></div>
+      <div class="lever-note">Divides the logits before softmax. Reshapes every probability.</div>
+      <input type="range" id="tIn" min="0.01" max="2" step="0.01" value="1" aria-label="Temperature">
+    </div>
+
+    <div class="lever">
+      <div class="lever-top"><span class="lever-name">Top-k</span><span class="lever-val" id="kVal">10</span></div>
+      <div class="lever-note">Keeps the k highest tokens. A fixed ceiling, whatever the shape.</div>
+      <input type="range" id="kIn" min="1" max="10" step="1" value="10" aria-label="Top-k">
+    </div>
+
+    <div class="lever">
+      <div class="lever-top"><span class="lever-name">Top-p</span><span class="lever-val" id="pVal">1.00</span></div>
+      <div class="lever-note">Keeps the smallest set reaching p of the mass. The pool breathes.</div>
+      <input type="range" id="pIn" min="0.05" max="1" step="0.01" value="1" aria-label="Top-p">
+    </div>
+
+    <div class="order">
+      <b>Order of operations</b>
+      <ol>
+        <li>Scale logits by 1/T, softmax</li>
+        <li>Cut to top-k</li>
+        <li>Cut to top-p</li>
+        <li>Renormalise, then sample</li>
+      </ol>
+    </div>
+  </div>
+
+  <div>
+    <div class="rows" id="rows"></div>
+  </div>
+</main>
+
+<footer>
+  <div class="stats">
+    <div>
+      <div class="stat-val" id="poolVal">10 of 10</div>
+      <div class="stat-lab">tokens the model may pick</div>
+    </div>
+    <div>
+      <div class="stat-val" id="entVal">2.51</div>
+      <div class="stat-lab">bits of entropy — how undecided it is</div>
+    </div>
+    <div>
+      <div class="stat-val" id="topVal">34.0%</div>
+      <div class="stat-lab">chance of the leading token</div>
+    </div>
+  </div>
+  <div class="actions">
+    <button id="draw">Sample one token</button>
+    <button id="draw20">Sample 20</button>
+  </div>
+  <div class="tape" id="tape"><b>Draws</b><span style="color:var(--drop)">nothing sampled yet</span></div>
+</footer>
+
+<script>
+// Base distribution at T=1 matches the figures on the slide.
+const VOCAB = [
+  ["beaches",        0.340],
+  ["temples",        0.270],
+  ["food",           0.150],
+  ["music",          0.090],
+  ["heat",           0.060],
+  ["filter coffee",  0.040],
+  ["traffic",        0.020],
+  ["marina",         0.015],
+  ["culture",        0.010],
+  ["rain",           0.005],
+];
+const LOGITS = VOCAB.map(v => Math.log(v[1]));
+const NAMES  = VOCAB.map(v => v[0]);
+
+const rowsEl = document.getElementById("rows");
+const tape   = document.getElementById("tape");
+let draws = [];
+let firedIdx = -1;
+
+// build rows once
+const rowEls = NAMES.map((name,i) => {
+  const r = document.createElement("div");
+  r.className = "row";
+  r.innerHTML = `<div class="tok">${name}</div>
+                 <div class="bar-track"><div class="bar"></div></div>
+                 <div class="pct"></div>`;
+  rowsEl.appendChild(r);
+  return r;
+});
+const cut = document.createElement("div");
+cut.className = "cut";
+cut.innerHTML = "<span>cut line</span>";
+rowsEl.appendChild(cut);
+
+function compute(T,k,p){
+  // 1. temperature + softmax
+  const scaled = LOGITS.map(l => l/T);
+  const max = Math.max(...scaled);
+  const exp = scaled.map(v => Math.exp(v-max));
+  const sum = exp.reduce((a,b)=>a+b,0);
+  let probs = exp.map(v => v/sum);
+
+  // indices ranked by probability (VOCAB is already descending, but be safe)
+  const order = probs.map((v,i)=>[v,i]).sort((a,b)=>b[0]-a[0]).map(x=>x[1]);
+
+  // 2. top-k
+  const keep = new Set(order.slice(0,k));
+
+  // 3. top-p over what survived k
+  let cum = 0;
+  const kept = [];
+  for (const i of order){
+    if (!keep.has(i)) continue;
+    kept.push(i);
+    cum += probs[i];
+    if (cum >= p) break;
+  }
+  const pool = new Set(kept);
+
+  // 4. renormalise
+  const poolMass = kept.reduce((a,i)=>a+probs[i],0);
+  const final = probs.map((v,i) => pool.has(i) ? v/poolMass : 0);
+
+  return {probs, final, pool, order};
+}
+
+function entropy(final){
+  let h = 0;
+  for (const v of final) if (v>0) h -= v*Math.log2(v);
+  return h;
+}
+
+function render(){
+  const T = parseFloat(tIn.value), k = parseInt(kIn.value), p = parseFloat(pIn.value);
+  tVal.textContent = T.toFixed(2);
+  kVal.textContent = k;
+  pVal.textContent = p.toFixed(2);
+
+  const {final, pool, order} = compute(T,k,p);
+  const maxShown = Math.max(...final, 0.0001);
+
+  rowEls.forEach((r,i) => {
+    const inPool = pool.has(i);
+    const v = final[i];
+    r.classList.toggle("out", !inPool);
+    r.classList.toggle("fired", i === firedIdx);
+    r.querySelector(".bar").style.width = (inPool ? (v/maxShown)*100 : 6) + "%";
+    r.querySelector(".pct").textContent = inPool ? (v*100).toFixed(1)+"%" : "—";
+  });
+
+  // cut line sits under the last token still in the pool
+  const lastIn = order.filter(i => pool.has(i)).length;
+  cut.style.top = (lastIn * 44) + "px";
+  cut.style.display = lastIn >= NAMES.length ? "none" : "flex";
+
+  poolVal.textContent = pool.size + " of " + NAMES.length;
+  entVal.textContent = entropy(final).toFixed(2);
+  topVal.textContent = (Math.max(...final)*100).toFixed(1) + "%";
+}
+
+function sampleOnce(){
+  const T = parseFloat(tIn.value), k = parseInt(kIn.value), p = parseFloat(pIn.value);
+  const {final} = compute(T,k,p);
+  let r = Math.random(), acc = 0, pick = final.findIndex(v=>v>0);
+  for (let i=0;i<final.length;i++){ acc += final[i]; if (r <= acc){ pick = i; break; } }
+  return pick;
+}
+
+function showTape(){
+  if (!draws.length){ tape.innerHTML = '<b>Draws</b><span style="color:var(--drop)">nothing sampled yet</span>'; return; }
+  const recent = draws.slice(-20);
+  const uniq = new Set(recent).size;
+  tape.innerHTML = '<b>Draws</b>' + recent.map(i=>`<span class="t">${NAMES[i]}</span>`).join("")
+    + `<span style="color:var(--ink-soft)">  —  ${uniq} distinct in ${recent.length}</span>`;
+}
+
+["tIn","kIn","pIn"].forEach(id => {
+  document.getElementById(id).addEventListener("input", () => { firedIdx = -1; render(); });
+});
+
+document.getElementById("draw").addEventListener("click", () => {
+  firedIdx = sampleOnce();
+  draws.push(firedIdx);
+  render(); showTape();
+});
+
+document.getElementById("draw20").addEventListener("click", () => {
+  firedIdx = -1;
+  for (let i=0;i<20;i++) draws.push(sampleOnce());
+  render(); showTape();
+});
+
+document.querySelectorAll("#presets button").forEach(b => {
+  b.addEventListener("click", () => {
+    tIn.value = b.dataset.t; kIn.value = b.dataset.k; pIn.value = b.dataset.p;
+    document.querySelectorAll("#presets button").forEach(x=>x.setAttribute("aria-pressed","false"));
+    b.setAttribute("aria-pressed","true");
+    draws = []; firedIdx = -1;
+    render(); showTape();
+  });
+});
+
+render(); showTape();
+</script>
+</body>
+</html>
