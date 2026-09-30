@@ -1,0 +1,10 @@
+# create_agent lives in langchain.agents from v1 onward.
+langchain>=1.0,<2
+langchain-google-genai>=2.1
+langchain-mcp-adapters>=0.1
+langgraph>=0.3
+mcp>=1.2
+
+# After it works on your machine, freeze the exact versions:
+#   pip freeze > requirements.lock.txt
+# and install from the lock file on talk day.

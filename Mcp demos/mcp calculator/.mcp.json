@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "simple-calculator": {
+      "command": "C:\\Users\\Goutham\\Music\\MCP calculator\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\Users\\Goutham\\Music\\MCP calculator\\server.py"
+      ]
+    }
+  }
+}
